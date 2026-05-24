@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>矩阵自动化拼图求解器 v2.0</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f5f7fa;
+            color: #333;
+            padding: 20px;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        h1, h2 { color: #2c3e50; margin-top: 0; }
+        .container {
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 30px;
+        }
+        @media (max-width: 900px) {
+            .container { grid-template-columns: 1fr; }
+        }
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .grid-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(5, 45px);
+            grid-template-rows: repeat(5, 45px);
+            gap: 4px;
+            background: #e2e8f0;
+            padding: 6px;
+            border-radius: 8px;
+            user-select: none;
+        }
+        .cell {
+            width: 45px;
+            height: 45px;
+            background-color: #ffffff;
+            cursor: pointer;
+            transition: all 0.1s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+        }
+        .cell.obstacle { background-color: #4a5568; }
+        .cell.filled { background-color: #3182ce; }
+        
+        /* 拼图选择区 */
+        .puzzle-container {
+            max-height: 75vh;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+        .puzzle-group {
+            margin-bottom: 20px;
+            border-bottom: 1px solid #edf2f7;
+            padding-bottom: 15px;
+        }
+        .puzzle-group-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #2b6cb0;
+            font-size: 16px;
+        }
+        .puzzle-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px;
+            background: #f8fafc;
+            margin-bottom: 6px;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+        }
+        .puzzle-preview {
+            display: grid;
+            gap: 2px;
+            background: #e2e8f0;
+            padding: 2px;
+            border-radius: 3px;
+        }
+        .counter-btn {
+            width: 30px;
+            height: 30px;
+            border: 1px solid #cbd5e1;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .counter-btn:disabled {
+            background: #edf2f7;
+            color: #cbd5e1;
+            cursor: not-allowed;
+            border-color: #e2e8f0;
+        }
+        .count-val {
+            display: inline-block;
+            width: 30px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .controls {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            width: 100%;
+            justify-content: center;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .btn-primary { background: #3182ce; color: white; }
+        .btn-primary:hover { background: #2b6cb0; }
+        .btn-secondary { background: #edf2f7; color: #4a5568; }
+        .btn-secondary:hover { background: #e2e8f0; }
+        
+        #status-msg {
+            margin-top: 10px;
+            padding: 12px;
+            border-radius: 6px;
+            font-weight: bold;
+            display: none;
+            width: 100%;
+            box-sizing: border-box;
+            text-align: center;
+        }
+        .status-success { background: #c6f6d5; color: #22543d; }
+        .status-fail { background: #fed7d7; color: #742a2a; }
+    </style>
+</head>
+<body>
+
+    <h1 style="text-align: center; margin-bottom: 30px;">自动化不规则拼图求解器</h1>
+
+    <div class="container">
+        <div class="card grid-section">
+            <h2>1. 配置不规则阵列</h2>
+            <p style="color: #718096; font-size: 13px; margin: 0; text-align: center;">
+                支持<b>鼠标点击/滑动</b>绘制障碍物
+            </p>
+            
+            <div id="grid" class="grid"></div>
+
+            <div style="font-size: 14px; margin-top: 5px;">
+                <span>可用空间: <b id="available-cells-count" style="color:#3182ce;">25</b> 格</span>
+                <span style="margin-left: 15px; color:#718096;">已选拼图总计: <span id="required-cells-count" style="font-weight:bold;">0</span> 格</span>
+            </div>
+            
+            <div id="status-msg"></div>
+
+            <div class="controls">
+                <button class="btn btn-secondary" onclick="resetGrid()">清空画布</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>2. 选择驱动拼图数量</h2>
+            <div id="puzzle-selectors" class="puzzle-container"></div>
+        </div>
+    </div>
+
+<script>
+// --- 1. 拼图库精确配置 (根据用户修正的数据) ---
+const PUZZLE_TYPES = {
+    "II型驱动 (2格)": [
+        { id: "ii_h", name: "水平2连格", size: 2, shape: [[0,0], [0,1]], color: "#fc8181", rows:1, cols:2 },
+        { id: "ii_v", name: "垂直2连格", size: 2, shape: [[0,0], [1,0]], color: "#f6ad55", rows:2, cols:1 }
+    ],
+    "III型驱动 (3格)": [
+        { id: "iii_h", name: "水平3连格", size: 3, shape: [[0,0], [0,1], [0,2]], color: "#68d391", rows:1, cols:3 },
+        { id: "iii_v", name: "垂直3连格", size: 3, shape: [[0,0], [1,0], [2,0]], color: "#4fd1c5", rows:3, cols:1 },
+        { id: "iii_l1", name: "2×2缺右上角", size: 3, shape: [[0,0], [1,0], [1,1]], color: "#63b3ed", rows:2, cols:2 },
+        { id: "iii_l2", name: "2×2缺左下角", size: 3, shape: [[0,0], [0,1], [1,1]], color: "#7f9cf5", rows:2, cols:2 },
+        { id: "iii_l3", name: "2×2缺右下角", size: 3, shape: [[0,0], [1,0], [0,1]], color: "#b7791f", rows:2, cols:2 },
+        { id: "iii_l4", name: "2×2缺左上角", size: 3, shape: [[1,0], [0,1], [1,1]], color: "#9f7aea", rows:2, cols:2 }
+    ],
+    "IV型驱动 (4格)": [
+        { id: "iv_h", name: "水平4连格", size: 4, shape: [[0,0], [0,1], [0,2], [0,3]], color: "#ed64a6", rows:1, cols:4 },
+        { id: "iv_v", name: "垂直4连格", size: 4, shape: [[0,0], [1,0], [2,0], [3,0]], color: "#f56565", rows:4, cols:1 },
+        { id: "iv_z1", name: "横向平行四边形(Z)", size: 4, shape: [[1,0], [1,1], [0,1], [0,2]], color: "#ecc94b", rows:2, cols:3 },
+        { id: "iv_z2", name: "纵向平行四边形(S)", size: 4, shape: [[0,1], [1,1], [1,0], [2,0]], color: "#ed8936", rows:3, cols:2 }
+    ]
+};
+
+const puzzleMap = {};
+for (let cat in PUZZLE_TYPES) {
+    PUZZLE_TYPES[cat].forEach(p => { puzzleMap[p.id] = p; });
+}
+
+// 动态扩展常数
+const GRID_SIZE = 5; 
+let gridState = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(0));
+let selectedCounts = {};
+for (let id in puzzleMap) selectedCounts[id] = 0;
+
+let isDrawing = false;
+let drawMode = 1; 
+
+// --- 2. 初始化与界面渲染 ---
+function initGrid() {
+    const gridEl = document.getElementById('grid');
+    gridEl.innerHTML = '';
+    for(let r=0; r<GRID_SIZE; r++) {
+        for(let c=0; c<GRID_SIZE; c++) {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            cell.dataset.row = r;
+            cell.dataset.col = c;
+            
+            cell.addEventListener('mousedown', (e) => {
+                isDrawing = true;
+                drawMode = gridState[r][c] === 1 ? 0 : 1;
+                toggleCell(r, c, drawMode);
+            });
+            cell.addEventListener('mouseenter', () => {
+                if (isDrawing) toggleCell(r, c, drawMode);
+            });
+            gridEl.appendChild(cell);
+        }
+    }
+    window.addEventListener('mouseup', () => isDrawing = false);
+    
+    updateCellCounts();
+    autoSolveAndUpdate();
+}
+
+function toggleCell(r, c, mode) {
+    gridState[r][c] = mode;
+    const cell = document.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+    if(mode === 1) {
+        cell.className = 'cell obstacle';
+        // 清除拼图渲染留下的内联样式，确保障碍物颜色正确显示
+        cell.style.backgroundColor = '';
+        cell.style.border = '';
+        cell.style.boxShadow = '';
+    } else {
+        cell.className = 'cell';
+        cell.style.backgroundColor = '';
+        cell.style.border = '';
+        cell.style.boxShadow = '';
+    }
+    updateCellCounts();
+    autoSolveAndUpdate();
+}
+
+function resetGrid() {
+    // 清空所有拼图数量（不修改障碍物）
+    for (let id in selectedCounts) {
+        selectedCounts[id] = 0;
+        document.getElementById(`count-${id}`).innerText = '0';
+    }
+    updateCellCounts();
+    autoSolveAndUpdate();
+}
+
+function renderSelectors() {
+    const container = document.getElementById('puzzle-selectors');
+    container.innerHTML = '';
+    
+    for (let category in PUZZLE_TYPES) {
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'puzzle-group';
+        groupDiv.innerHTML = `<div class="puzzle-group-title">${category}</div>`;
+        
+        PUZZLE_TYPES[category].forEach(p => {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'puzzle-item';
+            
+            // 生成小徽标预览图
+            let previewHtml = `<div class="puzzle-preview" style="grid-template-columns: repeat(${p.cols}, 12px)">`;
+            for(let i=0; i<p.rows; i++) {
+                for(let j=0; j<p.cols; j++) {
+                    const isPart = p.shape.some(pt => pt[0]===i && pt[1]===j);
+                    previewHtml += `<div style="width:12px; height:12px; border-radius:1px; background:${isPart ? p.color : 'transparent'}"></div>`;
+                }
+            }
+            previewHtml += '</div>';
+
+            itemDiv.innerHTML = `
+                <div style="display:flex; align-items:center; gap:15px;">
+                    ${previewHtml}
+                    <span style="font-size: 13px; font-weight:500;">${p.name}</span>
+                </div>
+                <div>
+                    <button class="counter-btn" onclick="changeCount('${p.id}', -1)">-</button>
+                    <span class="count-val" id="count-${p.id}">0</span>
+                    <button class="counter-btn" id="btn-plus-${p.id}" onclick="changeCount('${p.id}', 1)">+</button>
+                </div>
+            `;
+            groupDiv.appendChild(itemDiv);
+        });
+        container.appendChild(groupDiv);
+    }
+}
+
+// --- 3. 核心限额逻辑 ---
+function changeCount(id, delta) {
+    selectedCounts[id] = Math.max(0, selectedCounts[id] + delta);
+    document.getElementById(`count-${id}`).innerText = selectedCounts[id];
+    updateCellCounts();
+    autoSolveAndUpdate();
+}
+
+function getRemainingSpace() {
+    let availableCells = 0;
+    for(let r=0; r<GRID_SIZE; r++) {
+        for(let c=0; c<GRID_SIZE; c++) {
+            if(gridState[r][c] === 0) availableCells++;
+        }
+    }
+    let requiredCells = 0;
+    for(let id in selectedCounts) {
+        requiredCells += selectedCounts[id] * puzzleMap[id].size;
+    }
+    return availableCells - requiredCells;
+}
+
+function updateCellCounts() {
+    let availableCells = 0;
+    for(let r=0; r<GRID_SIZE; r++) {
+        for(let c=0; c<GRID_SIZE; c++) {
+            if(gridState[r][c] === 0) availableCells++;
+        }
+    }
+    document.getElementById('available-cells-count').innerText = availableCells;
+    
+    let requiredCells = 0;
+    for(let id in selectedCounts) {
+        requiredCells += selectedCounts[id] * puzzleMap[id].size;
+    }
+    document.getElementById('required-cells-count').innerText = requiredCells;
+
+    let remainingSpace = availableCells - requiredCells;
+    for(let id in puzzleMap) {
+        const plusBtn = document.getElementById(`btn-plus-${id}`);
+        if(plusBtn) {
+            if(puzzleMap[id].size > remainingSpace) {
+                plusBtn.disabled = true;
+            } else {
+                plusBtn.disabled = false;
+            }
+        }
+    }
+}
+
+// --- 4. 自动化回溯求解算法 (DFS) ---
+function autoSolveAndUpdate() {
+    clearSolutionDisplay();
+
+    let piecesToPlace = [];
+    for(let id in selectedCounts) {
+        for(let i=0; i<selectedCounts[id]; i++) {
+            piecesToPlace.push(puzzleMap[id]);
+        }
+    }
+
+    const msg = document.getElementById('status-msg');
+
+    if (piecesToPlace.length === 0) {
+        clearSolutionDisplay();
+        msg.style.display = 'none';
+        updatePlusButtonStates([]);
+        return;
+    }
+
+    piecesToPlace.sort((a, b) => b.size - a.size);
+
+    let board = gridState.map(row => [...row]);
+    let solution = [];
+
+    if (backtrack(0, piecesToPlace, board, solution)) {
+        msg.className = 'status-msg status-success';
+        msg.innerText = '✓ 当前拼图组合可行！';
+        msg.style.display = 'block';
+        renderSolution(solution);
+    } else {
+        msg.className = 'status-msg status-fail';
+        msg.innerText = '❌ 当前拼图组合无法完全放置。';
+        msg.style.display = 'block';
+    }
+
+    updatePlusButtonStates(piecesToPlace);
+}
+
+function clearSolutionDisplay() {
+    document.querySelectorAll('.cell').forEach(c => {
+        const r = parseInt(c.dataset.row);
+        const col = parseInt(c.dataset.col);
+        if(gridState[r][col] === 0) {
+            c.className = 'cell';
+            c.style.backgroundColor = '';
+            c.style.border = '';
+            c.style.boxShadow = '';
+        }
+    });
+}
+
+// 更新每个拼图的 + 按钮状态（基于实际求解可行性）
+function updatePlusButtonStates(existingPieces) {
+    const remainingSpace = getRemainingSpace();
+    
+    for(let id in puzzleMap) {
+        const plusBtn = document.getElementById(`btn-plus-${id}`);
+        if(!plusBtn) continue;
+
+        // 空间不足：直接禁用
+        if(puzzleMap[id].size > remainingSpace) {
+            plusBtn.disabled = true;
+            continue;
+        }
+
+        // 构造测试拼图列表：现有拼图 + 1 个当前类型
+        let testPieces = [...existingPieces, puzzleMap[id]];
+        testPieces.sort((a, b) => b.size - a.size);
+        let testBoard = gridState.map(row => [...row]);
+        let testSolution = [];
+
+        const canFit = backtrack(0, testPieces, testBoard, testSolution);
+        plusBtn.disabled = !canFit;
+    }
+}
+
+function backtrack(pieceIndex, pieces, board, solution) {
+    if (pieceIndex >= pieces.length) return true;
+
+    const piece = pieces[pieceIndex];
+
+    for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+            if (canPlace(piece, r, c, board)) {
+                placePiece(piece, r, c, board, true);
+                solution.push({ piece, r, c });
+
+                if (backtrack(pieceIndex + 1, pieces, board, solution)) return true;
+
+                solution.pop();
+                placePiece(piece, r, c, board, false);
+            }
+        }
+    }
+    return false;
+}
+
+function canPlace(piece, startR, startC, board) {
+    for (let pt of piece.shape) {
+        let targetR = startR + pt[0];
+        let targetC = startC + pt[1];
+        if (targetR < 0 || targetR >= GRID_SIZE || targetC < 0 || targetC >= GRID_SIZE) return false;
+        if (board[targetR][targetC] !== 0) return false;
+    }
+    return true;
+}
+
+function placePiece(piece, startR, startC, board, isPlace) {
+    for (let pt of piece.shape) {
+        let targetR = startR + pt[0];
+        let targetC = startC + pt[1];
+        board[targetR][targetC] = isPlace ? piece.id : 0;
+    }
+}
+
+function renderSolution(solution) {
+    // 构建位置映射：每个格子属于哪个拼图和步骤
+    const posMap = {}; // key: "r,c" -> { piece, stepIdx }
+    solution.forEach((step, idx) => {
+        step.piece.shape.forEach(pt => {
+            let r = step.r + pt[0];
+            let c = step.c + pt[1];
+            posMap[`${r},${c}`] = { piece: step.piece, stepIdx: idx };
+        });
+    });
+
+    solution.forEach((step, idx) => {
+        step.piece.shape.forEach(pt => {
+            let r = step.r + pt[0];
+            let c = step.c + pt[1];
+            const cell = document.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+            cell.classList.add('filled');
+            cell.style.backgroundColor = step.piece.color;
+
+            // 检查四边是否在拼图块边界上
+            const top = posMap[`${r-1},${c}`];
+            const bottom = posMap[`${r+1},${c}`];
+            const left = posMap[`${r},${c-1}`];
+            const right = posMap[`${r},${c+1}`];
+
+            const borderWidth = '2px';
+            const borderColor = '#2d3748';
+            cell.style.borderTop = (!top || top.stepIdx !== idx) ? `${borderWidth} solid ${borderColor}` : '';
+            cell.style.borderBottom = (!bottom || bottom.stepIdx !== idx) ? `${borderWidth} solid ${borderColor}` : '';
+            cell.style.borderLeft = (!left || left.stepIdx !== idx) ? `${borderWidth} solid ${borderColor}` : '';
+            cell.style.borderRight = (!right || right.stepIdx !== idx) ? `${borderWidth} solid ${borderColor}` : '';
+
+            // 用 box-shadow 填充同块拼图相邻格子间的网格间隙，让拼图更像一个整体
+            let shadows = [];
+            if (right && right.stepIdx === idx) {
+                shadows.push(`4px 0 0 0 ${step.piece.color}`);
+            }
+            if (bottom && bottom.stepIdx === idx) {
+                shadows.push(`0 4px 0 0 ${step.piece.color}`);
+            }
+            cell.style.boxShadow = shadows.length > 0 ? shadows.join(', ') : '';
+        });
+    });
+}
+
+// 启动
+initGrid();
+renderSelectors();
+</script>
+</body>
+</html>
